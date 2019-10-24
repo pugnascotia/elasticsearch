@@ -700,19 +700,21 @@ public class OptimizerTests extends ESTestCase {
     }
 
     public void testSimplifyCaseConditionsFoldWhenFalse() {
-        // CASE WHEN a = 1 THEN 'foo1'
-        //      WHEN 1 = 2 THEN 'bar1'
-        //      WHEN 2 = 1 THEN 'bar2'
-        //      WHEN a > 1 THEN 'foo2'
-        // ELSE 'default'
-        // END
-        //
-        // ==>
-        //
-        // CASE WHEN a = 1 THEN 'foo1'
-        //      WHEN a > 1 THEN 'foo2'
-        // ELSE 'default'
-        // END
+        /*
+         * CASE WHEN a = 1 THEN 'foo1'
+         *      WHEN 1 = 2 THEN 'bar1'
+         *      WHEN 2 = 1 THEN 'bar2'
+         *      WHEN a > 1 THEN 'foo2'
+         * ELSE 'default'
+         * END
+         *
+         * ==>
+         *
+         * CASE WHEN a = 1 THEN 'foo1'
+         *      WHEN a > 1 THEN 'foo2'
+         * ELSE 'default'
+         * END
+         */
 
         Case c = new Case(EMPTY, Arrays.asList(
                 new IfConditional(EMPTY, new Equals(EMPTY, getFieldAttribute(), ONE), literal("foo1")),
@@ -731,14 +733,16 @@ public class OptimizerTests extends ESTestCase {
     }
 
     public void testSimplifyCaseConditionsFoldCompletely_FoldableElse() {
-        // CASE WHEN 1 = 2 THEN 'foo1'
-        //      WHEN 1 = 1 THEN 'foo2'
-        // ELSE 'default'
-        // END
-        //
-        // ==>
-        //
-        // 'foo2'
+        /*
+         * CASE WHEN 1 = 2 THEN 'foo1'
+         *      WHEN 1 = 1 THEN 'foo2'
+         * ELSE 'default'
+         * END
+         *
+         * ==>
+         *
+         * 'foo2'
+         */
 
         Case c = new Case(EMPTY, Arrays.asList(
                 new IfConditional(EMPTY, new Equals(EMPTY, ONE, TWO), literal("foo1")),
@@ -757,13 +761,15 @@ public class OptimizerTests extends ESTestCase {
     }
 
     public void testSimplifyCaseConditionsFoldCompletely_NonFoldableElse() {
-        // CASE WHEN 1 = 2 THEN 'foo1'
-        // ELSE myField
-        // END
-        //
-        // ==>
-        //
-        // myField (non-foldable)
+        /*
+         * CASE WHEN 1 = 2 THEN 'foo1'
+         * ELSE myField
+         * END
+         *
+         * ==>
+         *
+         * myField (non-foldable)
+         */
 
         Case c = new Case(EMPTY, Arrays.asList(
                 new IfConditional(EMPTY, new Equals(EMPTY, ONE, TWO), literal("foo1")),
@@ -834,7 +840,7 @@ public class OptimizerTests extends ESTestCase {
         assertFalse(iif.foldable());
         assertEquals("myField", Expressions.name(iif.elseResult()));
     }
-    
+
     //
     // Logical simplifications
     //
@@ -1860,12 +1866,12 @@ public class OptimizerTests extends ESTestCase {
         Alias secondAlias = new Alias(EMPTY, "second_alias", secondField);
         Order firstOrderBy = new Order(EMPTY, firstField, OrderDirection.ASC, Order.NullsPosition.LAST);
         Order secondOrderBy = new Order(EMPTY, secondField, OrderDirection.ASC, Order.NullsPosition.LAST);
-        
+
         OrderBy orderByPlan = new OrderBy(EMPTY,
                 new Aggregate(EMPTY, FROM(), Arrays.asList(secondField, firstField), Arrays.asList(secondAlias, firstAlias)),
                 Arrays.asList(firstOrderBy, secondOrderBy));
         LogicalPlan result = new SortAggregateOnOrderBy().apply(orderByPlan);
-        
+
         assertTrue(result instanceof OrderBy);
         List<Order> order = ((OrderBy) result).order();
         assertEquals(2, order.size());
@@ -1873,7 +1879,7 @@ public class OptimizerTests extends ESTestCase {
         assertTrue(order.get(1).child() instanceof FieldAttribute);
         assertEquals("first_field", ((FieldAttribute) order.get(0).child()).name());
         assertEquals("second_field", ((FieldAttribute) order.get(1).child()).name());
-        
+
         assertTrue(((OrderBy) result).child() instanceof Aggregate);
         Aggregate agg = (Aggregate) ((OrderBy) result).child();
         List<?> groupings = agg.groupings();
@@ -1892,12 +1898,12 @@ public class OptimizerTests extends ESTestCase {
         Alias secondAlias = new Alias(EMPTY, "second_alias", secondField);
         Order firstOrderBy = new Order(EMPTY, firstAlias, OrderDirection.ASC, Order.NullsPosition.LAST);
         Order secondOrderBy = new Order(EMPTY, secondAlias, OrderDirection.ASC, Order.NullsPosition.LAST);
-        
+
         OrderBy orderByPlan = new OrderBy(EMPTY,
                 new Aggregate(EMPTY, FROM(), Arrays.asList(secondAlias, firstAlias), Arrays.asList(secondAlias, firstAlias)),
                 Arrays.asList(firstOrderBy, secondOrderBy));
         LogicalPlan result = new SortAggregateOnOrderBy().apply(orderByPlan);
-        
+
         assertTrue(result instanceof OrderBy);
         List<Order> order = ((OrderBy) result).order();
         assertEquals(2, order.size());
@@ -1905,7 +1911,7 @@ public class OptimizerTests extends ESTestCase {
         assertTrue(order.get(1).child() instanceof Alias);
         assertEquals("first_alias", ((Alias) order.get(0).child()).name());
         assertEquals("second_alias", ((Alias) order.get(1).child()).name());
-        
+
         assertTrue(((OrderBy) result).child() instanceof Aggregate);
         Aggregate agg = (Aggregate) ((OrderBy) result).child();
         List<?> groupings = agg.groupings();
@@ -2010,14 +2016,14 @@ public class OptimizerTests extends ESTestCase {
     public void testReplaceAttributesWithTarget() {
         FieldAttribute a = getFieldAttribute("a");
         FieldAttribute b = getFieldAttribute("b");
-        
+
         Alias aAlias = new Alias(EMPTY, "aAlias", a);
         Alias bAlias = new Alias(EMPTY, "bAlias", b);
-        
+
         Project p = new Project(EMPTY, FROM(), Arrays.asList(aAlias, bAlias));
         Filter f = new Filter(EMPTY, p,
                 new And(EMPTY, new GreaterThan(EMPTY, aAlias.toAttribute(), L(1)), new GreaterThan(EMPTY, bAlias.toAttribute(), L(2))));
-        
+
         ReplaceReferenceAttributeWithSource rule = new ReplaceReferenceAttributeWithSource();
         Expression condition = f.condition();
         assertTrue(condition instanceof And);

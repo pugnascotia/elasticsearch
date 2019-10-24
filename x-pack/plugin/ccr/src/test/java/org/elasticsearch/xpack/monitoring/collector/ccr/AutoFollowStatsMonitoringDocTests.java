@@ -26,11 +26,13 @@ import java.io.IOException;
 import java.time.ZoneOffset;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
 
 import static org.elasticsearch.common.xcontent.XContentFactory.jsonBuilder;
+import static org.elasticsearch.common.xcontent.XContentHelper.stripWhitespace;
 import static org.hamcrest.Matchers.anyOf;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
@@ -89,48 +91,57 @@ public class AutoFollowStatsMonitoringDocTests extends BaseMonitoringDocTestCase
         final AutoFollowStatsMonitoringDoc document =
             new AutoFollowStatsMonitoringDoc("_cluster", timestamp, intervalMillis, node, autoFollowStats);
         final BytesReference xContent = XContentHelper.toXContent(document, XContentType.JSON, false);
-        assertThat(
-            xContent.utf8ToString(),
-            equalTo(
-                "{"
-                    + "\"cluster_uuid\":\"_cluster\","
-                    + "\"timestamp\":\"" + DATE_TIME_FORMATTER.formatMillis(timestamp) + "\","
-                    + "\"interval_ms\":" + intervalMillis + ","
-                    + "\"type\":\"ccr_auto_follow_stats\","
-                    + "\"source_node\":{"
-                        + "\"uuid\":\"_uuid\","
-                        + "\"host\":\"_host\","
-                        + "\"transport_address\":\"_addr\","
-                        + "\"ip\":\"_ip\","
-                        + "\"name\":\"_name\","
-                        + "\"timestamp\":\"" + DATE_TIME_FORMATTER.formatMillis(nodeTimestamp) +  "\""
-                    + "},"
-                    + "\"ccr_auto_follow_stats\":{"
-                        + "\"number_of_failed_follow_indices\":" + autoFollowStats.getNumberOfFailedFollowIndices() + ","
-                        + "\"number_of_failed_remote_cluster_state_requests\":" +
-                        autoFollowStats.getNumberOfFailedRemoteClusterStateRequests() + ","
-                        + "\"number_of_successful_follow_indices\":" + autoFollowStats.getNumberOfSuccessfulFollowIndices() + ","
-                        + "\"recent_auto_follow_errors\":["
-                            + "{"
-                                + "\"leader_index\":\"" + recentAutoFollowExceptions.keySet().iterator().next() + "\","
-                                + "\"timestamp\":1,"
-                                + "\"auto_follow_exception\":{"
-                                    + "\"type\":\"exception\","
-                                    + "\"reason\":\"cannot follow index\""
-                                + "}"
-                            + "}"
-                        + "],"
-                        + "\"auto_followed_clusters\":["
-                            + "{"
-                                + "\"cluster_name\":\"" + trackingClusters.keySet().iterator().next() + "\","
-                                + "\"time_since_last_check_millis\":"  +
-                                    trackingClusters.values().iterator().next().getTimeSinceLastCheckMillis() + ","
-                                + "\"last_seen_metadata_version\":"  +
-                                    trackingClusters.values().iterator().next().getLastSeenMetadataVersion()
-                            + "}"
-                        + "]"
-                    + "}"
-            + "}"));
+        final String expected = String.format(
+            Locale.ROOT,
+            "{"
+                + "  \"cluster_uuid\": \"_cluster\","
+                + "  \"timestamp\": \"%s\","
+                + "  \"interval_ms\": %d,"
+                + "  \"type\": \"ccr_auto_follow_stats\","
+                + "  \"source_node\": {"
+                + "    \"uuid\": \"_uuid\","
+                + "    \"host\": \"_host\","
+                + "    \"transport_address\": \"_addr\","
+                + "    \"ip\": \"_ip\","
+                + "    \"name\": \"_name\","
+                + "    \"timestamp\": \"%s\""
+                + "  },"
+                + "  \"ccr_auto_follow_stats\": {"
+                + "    \"number_of_failed_follow_indices\": %d,"
+                + "    \"number_of_failed_remote_cluster_state_requests\": %d,"
+                + "    \"number_of_successful_follow_indices\": %d,"
+                + "    \"recent_auto_follow_errors\": ["
+                + "      {"
+                + "        \"leader_index\": \"%s\","
+                + "        \"timestamp\": 1,"
+                + "        \"auto_follow_exception\": {"
+                + "          \"type\": \"exception\","
+                + "          \"reason\": \"cannot follow index\""
+                + "        }"
+                + "      }"
+                + "    ],"
+                + "    \"auto_followed_clusters\": ["
+                + "      {"
+                + "        \"cluster_name\": \"%s\","
+                + "        \"time_since_last_check_millis\": %d,"
+                + "        \"last_seen_metadata_version\": %d"
+                + "      }"
+                + "    ]"
+                + "  }"
+                + "}",
+            DATE_TIME_FORMATTER.formatMillis(timestamp),
+            intervalMillis,
+            DATE_TIME_FORMATTER.formatMillis(nodeTimestamp),
+            autoFollowStats.getNumberOfFailedFollowIndices(),
+            autoFollowStats.getNumberOfFailedRemoteClusterStateRequests(),
+            autoFollowStats.getNumberOfSuccessfulFollowIndices(),
+            recentAutoFollowExceptions.keySet().iterator().next(),
+            trackingClusters.keySet().iterator().next(),
+            trackingClusters.values().iterator().next().getTimeSinceLastCheckMillis(),
+            trackingClusters.values().iterator().next().getLastSeenMetadataVersion()
+        );
+
+        assertThat(xContent.utf8ToString(), equalTo(stripWhitespace(expected)));
     }
 
     public void testShardFollowNodeTaskStatusFieldsMapped() throws IOException {
