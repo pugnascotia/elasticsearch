@@ -23,6 +23,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.Build;
 import org.elasticsearch.Version;
+import org.elasticsearch.action.ActionListener;
+import org.elasticsearch.action.DocWriteRequest;
+import org.elasticsearch.action.index.IndexAction;
+import org.elasticsearch.action.index.IndexRequestBuilder;
+import org.elasticsearch.action.index.IndexResponse;
+import org.elasticsearch.client.node.NodeClient;
 import org.elasticsearch.common.SuppressLoggerChecks;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
 import org.elasticsearch.tasks.Task;
@@ -30,8 +36,10 @@ import org.elasticsearch.tasks.Task;
 import java.nio.charset.Charset;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
+import java.time.Instant;
 import java.util.BitSet;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -47,7 +55,12 @@ import java.util.regex.Pattern;
  */
 public class DeprecationLogger {
 
+    private static NodeClient nodeClient = null;
     private final Logger logger;
+
+    public static void setNodeClient(NodeClient client) {
+        DeprecationLogger.nodeClient = client;
+    }
 
     /**
      * This is set once by the {@code Node} constructor, but it uses {@link CopyOnWriteArraySet} to ensure that tests can run in parallel.
@@ -257,6 +270,31 @@ public class DeprecationLogger {
                     return null;
                 }
             });
+
+            if (nodeClient != null) {
+                Map<String, Object> payload = new HashMap<>();
+                payload.put("@timestamp", Instant.now().toString());
+                payload.put("keys", keys);
+                payload.put("message", message);
+                payload.put("params", params);
+
+                new IndexRequestBuilder(nodeClient, IndexAction.INSTANCE)
+                    .setIndex(".deprecations")
+                    .setOpType(DocWriteRequest.OpType.CREATE)
+                    .setSource(payload)
+                    .execute(new ActionListener<>() {
+                        @Override
+                        public void onResponse(IndexResponse indexResponse) {
+                            // Nothing to do
+                        }
+
+                        @Override
+                        public void onFailure(Exception e) {
+                            // FIXME: reusing `logger` here feels slightly wrong.
+                            logger.error("Failed to index deprecation message", e);
+                        }
+                    });
+            }
         }
     }
 
