@@ -50,6 +50,8 @@ import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static org.elasticsearch.common.Strings.isNullOrEmpty;
+
 /**
  * A logger that logs deprecation notices.
  */
@@ -127,11 +129,11 @@ public class DeprecationLogger {
      * Logs a deprecation message, adding a formatted warning message as a response header on the thread context.
      */
     public void deprecated(String msg, Object... params) {
-        deprecated(THREAD_CONTEXT, msg, params);
+        deprecated(THREAD_CONTEXT, "", msg, params);
     }
 
     // LRU set of keys used to determine if a deprecation message should be emitted to the deprecation logs
-    private Set<String> keys = Collections.newSetFromMap(Collections.synchronizedMap(new LinkedHashMap<String, Boolean>() {
+    private Set<String> keys = Collections.newSetFromMap(Collections.synchronizedMap(new LinkedHashMap<>() {
         @Override
         protected boolean removeEldestEntry(final Map.Entry<String, Boolean> eldest) {
             return size() > 128;
@@ -148,8 +150,8 @@ public class DeprecationLogger {
      */
     public void deprecatedAndMaybeLog(final String key, final String msg, final Object... params) {
         String xOpaqueId = getXOpaqueId(THREAD_CONTEXT);
-        boolean log = keys.add(xOpaqueId + key);
-        deprecated(THREAD_CONTEXT, msg, log, params);
+        boolean shouldLog = keys.add(xOpaqueId + key);
+        deprecated(THREAD_CONTEXT, key, msg, shouldLog, params);
     }
 
     /*
@@ -235,11 +237,17 @@ public class DeprecationLogger {
      * @param message The deprecation message.
      * @param params The parameters used to fill in the message, if any exist.
      */
-    void deprecated(final Set<ThreadContext> threadContexts, final String message, final Object... params) {
-        deprecated(threadContexts, message, true, params);
+    void deprecated(final Set<ThreadContext> threadContexts, final String key, final String message, final Object... params) {
+        deprecated(threadContexts, key, message, true, params);
     }
 
-    void deprecated(final Set<ThreadContext> threadContexts, final String message, final boolean log, final Object... params) {
+    void deprecated(
+        final Set<ThreadContext> threadContexts,
+        final String key,
+        final String message,
+        final boolean shouldLog,
+        final Object... params
+    ) {
         final Iterator<ThreadContext> iterator = threadContexts.iterator();
         if (iterator.hasNext()) {
             final String formattedMessage = LoggerMessageFormat.format(message, params);
@@ -256,12 +264,12 @@ public class DeprecationLogger {
             }
         }
 
-        if (log) {
+        if (shouldLog) {
             AccessController.doPrivileged(new PrivilegedAction<Void>() {
                 @SuppressLoggerChecks(reason = "safely delegates to logger")
                 @Override
                 public Void run() {
-                    /**
+                    /*
                      * There should be only one threadContext (in prod env), @see DeprecationLogger#setThreadContext
                      */
                     String opaqueId = getXOpaqueId(threadContexts);
@@ -271,31 +279,59 @@ public class DeprecationLogger {
                 }
             });
 
-            if (nodeClient != null) {
-                Map<String, Object> payload = new HashMap<>();
-                payload.put("@timestamp", Instant.now().toString());
-                payload.put("keys", keys);
-                payload.put("message", message);
-                payload.put("params", params);
-
-                new IndexRequestBuilder(nodeClient, IndexAction.INSTANCE)
-                    .setIndex(".deprecations")
-                    .setOpType(DocWriteRequest.OpType.CREATE)
-                    .setSource(payload)
-                    .execute(new ActionListener<>() {
-                        @Override
-                        public void onResponse(IndexResponse indexResponse) {
-                            // Nothing to do
-                        }
-
-                        @Override
-                        public void onFailure(Exception e) {
-                            // FIXME: reusing `logger` here feels slightly wrong.
-                            logger.error("Failed to index deprecation message", e);
-                        }
-                    });
-            }
+            indexDeprecationMessage(key, message, params);
         }
+    }
+
+    /**
+     * Records a deprecation message to the `.deprecations` index.
+     *
+     * @param key     the key that was used to determine if this deprecation should have been be logged.
+     *                This is potentially useful when aggregating the recorded messages.
+     * @param message the message to log
+     * @param params  parameters to the message, if any
+     */
+    private void indexDeprecationMessage(String key, String message, Object[] params) {
+        if (nodeClient == null) {
+            return;
+        }
+
+        Map<String, Object> payload = new HashMap<>();
+
+        // ECS fields
+        payload.put("@timestamp", Instant.now().toString());
+        payload.put("message", message);
+        if (isNullOrEmpty(key) == false) {
+            payload.put("tags", key);
+        }
+
+        // Other fields
+        final String xOpaqueId = getXOpaqueId(THREAD_CONTEXT);
+        if (isNullOrEmpty(xOpaqueId) == false) {
+            // I considered putting this under labels.x-opaque-id, per ECS,
+            // but wondered if that was a stretch?
+            payload.put("x-opaque-id", xOpaqueId);
+        }
+        if (params != null && params.length > 0) {
+            payload.put("params", params);
+        }
+
+        new IndexRequestBuilder(nodeClient, IndexAction.INSTANCE)
+            .setIndex(".deprecations")
+            .setOpType(DocWriteRequest.OpType.CREATE)
+            .setSource(payload)
+            .execute(new ActionListener<>() {
+                @Override
+                public void onResponse(IndexResponse indexResponse) {
+                    // Nothing to do
+                }
+
+                @Override
+                public void onFailure(Exception e) {
+                    // FIXME: reusing `logger` here feels slightly wrong.
+                    logger.error("Failed to index deprecation message", e);
+                }
+            });
     }
 
     public String getXOpaqueId(Set<ThreadContext> threadContexts) {
