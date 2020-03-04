@@ -24,24 +24,24 @@ import org.apache.logging.log4j.Logger;
 import org.elasticsearch.Build;
 import org.elasticsearch.Version;
 import org.elasticsearch.action.ActionListener;
-import org.elasticsearch.action.DocWriteRequest;
-import org.elasticsearch.action.index.IndexAction;
-import org.elasticsearch.action.index.IndexRequestBuilder;
-import org.elasticsearch.action.index.IndexResponse;
+import org.elasticsearch.action.admin.indices.template.get.GetIndexTemplatesResponse;
+import org.elasticsearch.action.admin.indices.template.put.PutIndexTemplateRequest;
+import org.elasticsearch.action.support.master.AcknowledgedResponse;
 import org.elasticsearch.client.node.NodeClient;
 import org.elasticsearch.common.SuppressLoggerChecks;
+import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
 import org.elasticsearch.tasks.Task;
 
 import java.nio.charset.Charset;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
-import java.time.Instant;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -50,19 +50,24 @@ import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static org.elasticsearch.common.Strings.isNullOrEmpty;
-
 /**
  * A logger that logs deprecation notices.
  */
 public class DeprecationLogger {
+    private static final Logger classLogger = LogManager.getLogger(DeprecationLogger.class);
 
-    private static NodeClient nodeClient = null;
+    /**
+     * When enabled, write deprecation messages to the `.deprecations` index.
+     */
+    public static final Setting<Boolean> WRITE_DEPRECATION_LOGS_TO_INDEX = Setting.boolSetting(
+        "cluster.deprecation_logs.write_to_index",
+        true,
+        Setting.Property.NodeScope,
+        Setting.Property.Dynamic
+    );
+    private static DeprecationIndexer deprecationIndexer;
+
     private final Logger logger;
-
-    public static void setNodeClient(NodeClient client) {
-        DeprecationLogger.nodeClient = client;
-    }
 
     /**
      * This is set once by the {@code Node} constructor, but it uses {@link CopyOnWriteArraySet} to ensure that tests can run in parallel.
@@ -74,6 +79,17 @@ public class DeprecationLogger {
      * For actual usage, multiple nodes do not share the same JVM and therefore this will only be set once in practice.
      */
     private static final CopyOnWriteArraySet<ThreadContext> THREAD_CONTEXT = new CopyOnWriteArraySet<>();
+
+    /**
+     * This is set once by the {@code Node} constructor, but it uses {@link CopyOnWriteArraySet} to ensure that tests can run in parallel.
+     * <p>
+     * Integration tests will create separate nodes within the same classloader, thus leading to a shared, {@code static} state.
+     * In order for all tests to appropriately be handled, this must be able to remember <em>all</em> {@link NodeClient}s that it is
+     * given in a thread safe manner.
+     * <p>
+     * For actual usage, multiple nodes do not share the same JVM and therefore this will only be set once in practice.
+     */
+    private static final CopyOnWriteArraySet<DeprecationIndexer> INDEXERS = new CopyOnWriteArraySet<>();
 
     /**
      * Set the {@link ThreadContext} used to add deprecation headers to network responses.
@@ -106,6 +122,40 @@ public class DeprecationLogger {
         // remove returning false means it did not have it already
         if (THREAD_CONTEXT.remove(threadContext) == false) {
             throw new IllegalStateException("Removing unknown ThreadContext not allowed!");
+        }
+    }
+
+    /**
+     * Set the {@link NodeClient} used to index deprecation logs.
+     * <p>
+     * This is expected to <em>only</em> be invoked by the {@code Node}'s constructor (therefore once outside of tests).
+     *
+     * @param indexer The node client owned by the {@code Node}
+     * @throws IllegalStateException if this {@code client} has already been set
+     */
+    public static void setIndexer(DeprecationIndexer indexer) {
+        Objects.requireNonNull(indexer, "Cannot register a null DeprecationIndexer");
+
+        // add returning false means it _did_ have it already
+        if (INDEXERS.add(indexer) == false) {
+            throw new IllegalStateException("Double-setting DeprecationIndexer not allowed!");
+        }
+    }
+
+    /**
+     * Remove the {@link DeprecationIndexer} used to index deprecation logs.
+     * <p>
+     * This is expected to <em>only</em> be invoked by the {@code Node}'s {@code close} method (therefore once outside of tests).
+     *
+     * @param indexer The indexer owned by the {@code Node}
+     * @throws IllegalStateException if this {@code indexer} is unknown (and presumably already unset before)
+     */
+    public static void removeIndexer(DeprecationIndexer indexer) {
+        assert indexer != null;
+
+        // remove returning false means it did not have it already
+        if (INDEXERS.remove(indexer) == false) {
+            throw new IllegalStateException("Removing unknown DeprecationIndexer not allowed!");
         }
     }
 
@@ -292,46 +342,13 @@ public class DeprecationLogger {
      * @param params  parameters to the message, if any
      */
     private void indexDeprecationMessage(String key, String message, Object[] params) {
-        if (nodeClient == null) {
+        final Iterator<DeprecationIndexer> iterator = INDEXERS.iterator();
+
+        if (iterator.hasNext() == false) {
             return;
         }
 
-        Map<String, Object> payload = new HashMap<>();
-
-        // ECS fields
-        payload.put("@timestamp", Instant.now().toString());
-        payload.put("message", message);
-        if (isNullOrEmpty(key) == false) {
-            payload.put("tags", key);
-        }
-
-        // Other fields
-        final String xOpaqueId = getXOpaqueId(THREAD_CONTEXT);
-        if (isNullOrEmpty(xOpaqueId) == false) {
-            // I considered putting this under labels.x-opaque-id, per ECS,
-            // but wondered if that was a stretch?
-            payload.put("x-opaque-id", xOpaqueId);
-        }
-        if (params != null && params.length > 0) {
-            payload.put("params", params);
-        }
-
-        new IndexRequestBuilder(nodeClient, IndexAction.INSTANCE)
-            .setIndex(".deprecations")
-            .setOpType(DocWriteRequest.OpType.CREATE)
-            .setSource(payload)
-            .execute(new ActionListener<>() {
-                @Override
-                public void onResponse(IndexResponse indexResponse) {
-                    // Nothing to do
-                }
-
-                @Override
-                public void onFailure(Exception e) {
-                    // FIXME: reusing `logger` here feels slightly wrong.
-                    logger.error("Failed to index deprecation message", e);
-                }
-            });
+        iterator.next().indexDeprecationMessage(key, message, getXOpaqueId(THREAD_CONTEXT), params);
     }
 
     public String getXOpaqueId(Set<ThreadContext> threadContexts) {
@@ -486,4 +503,55 @@ public class DeprecationLogger {
         }
     }
 
+
+    private static void ensureIndexTemplate(NodeClient client, Runnable onCreate) {
+        client.admin().indices().prepareGetTemplates(".deprecation_logs").execute(new ActionListener<>() {
+            @Override
+            public void onResponse(GetIndexTemplatesResponse getIndexTemplatesResponse) {
+                if (getIndexTemplatesResponse.getIndexTemplates().isEmpty() == false) {
+                    // Template already exists
+                    onCreate.run();
+                    return;
+                }
+
+                PutIndexTemplateRequest putRequest = new PutIndexTemplateRequest(".deprecation_logs");
+                putRequest.patterns(List.of(".deprecation_logs.*"));
+                putRequest.create(false);
+                putRequest.settings(Map.of("number_of_shards", 1));
+
+                Map<String, Object> _source = Map.of("enabled", false);
+
+                Map<String, Object> properties = new HashMap<>();
+                properties.put("@timestamp", "date");
+                properties.put("message", "text");
+                properties.put("tags", "keyword");
+                properties.put("x-opaque-id", "keyword");
+                // Do we even want to index params?
+                properties.put("params", "keyword");
+
+                Map<String, Object> mappings = new HashMap<>();
+                mappings.put("_source", _source);
+                mappings.put("properties", properties);
+
+                putRequest.source(mappings);
+
+                client.admin().indices().putTemplate(putRequest, new ActionListener<>() {
+                    @Override
+                    public void onResponse(AcknowledgedResponse acknowledgedResponse) {
+                        onCreate.run();
+                    }
+
+                    @Override
+                    public void onFailure(Exception e) {
+                        classLogger.error("Failed to create index template [.deprecation_logs]", e);
+                    }
+                });
+            }
+
+            @Override
+            public void onFailure(Exception e) {
+                classLogger.error("Failed to ensure that the index template [.deprecation_logs] exists", e);
+            }
+        });
+    }
 }
