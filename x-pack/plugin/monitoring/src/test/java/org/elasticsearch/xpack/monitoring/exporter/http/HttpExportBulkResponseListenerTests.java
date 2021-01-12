@@ -112,7 +112,7 @@ public class HttpExportBulkResponseListenerTests extends ESTestCase {
         when(xContent.createParser(Mockito.any(NamedXContentRegistry.class),
                 Mockito.any(DeprecationHandler.class), Mockito.eq(stream))).thenReturn(parser);
 
-        // tag::disable-formatting
+        // tag::noformat
         // {, "took", 4, "errors", false
         when(parser.nextToken()).thenReturn(               // nextToken, currentName
             Token.START_OBJECT,                            // 1
@@ -134,7 +134,7 @@ public class HttpExportBulkResponseListenerTests extends ESTestCase {
                     Token.FIELD_NAME, Token.VALUE_STRING,  // 28, 12 ("error")
                 Token.END_OBJECT,                          // 29
             Token.END_ARRAY);                              // 30
-        // end::disable-formatting
+        // end::noformat
         when(parser.currentName()).thenReturn("took", "errors", "items",
                                               "index", "_index", "_type", "_id",
                                               "index", "_index", "_type", "_id", "error");
