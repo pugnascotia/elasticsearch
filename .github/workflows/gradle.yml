@@ -1,0 +1,43 @@
+# This workflow will build a Java project with Gradle
+# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-gradle
+
+name: Java CI with Gradle
+
+# Run on `pull_request` events that target the `master` branch
+on:
+  pull_request:
+    branches: [ master ]
+    types: [assigned, opened, synchronize, reopened]
+
+jobs:
+  check-labels-and-generate-changelog:
+    if: github.repository_owner == 'pugnascotia'
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/cache@v2
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+      
+    - name: Checkout the branch
+      uses: actions/checkout@v2
+    
+    - name: Set up JDK 15
+      uses: actions/setup-java@v1
+      with:
+        java-version: 15
+        
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+      
+    - name: Check PR labels
+      run: echo ./gradlew checkPrLabels
+      
+    - name: Generate changelog file
+      run: echo ./gradlew generateChangelogFile
