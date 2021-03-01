@@ -1,6 +1,6 @@
 = Elasticsearch
 
-== A Distributed RESTful Search Engine
+== A Distributed, RESTful Search Engine
 
 === https://www.elastic.co/products/elasticsearch[https://www.elastic.co/products/elasticsearch]
 
