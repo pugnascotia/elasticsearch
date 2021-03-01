@@ -11,7 +11,7 @@ set -e -o pipefail
 # to avoid unexpected failures when an environment sets a "*_FILE" variable
 # that doesn't contain a filename.
 #
-# This script is intended to be sourced, not executed, and modifies the
+# This script is intended to be sourced, not executed, as it modifies the
 # environment.
 
 for VAR_NAME_FILE in ELASTIC_PASSWORD_FILE KEYSTORE_PASSWORD_FILE ; do
