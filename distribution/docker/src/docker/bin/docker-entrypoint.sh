@@ -77,26 +77,26 @@ configure_logging() {
 }
 
 run_init_scripts() {
-  if [[ -d /docker-entrypoint-initdb.d ]]; then
+  if [[ -d /docker-entrypoint-init.d ]]; then
     for init_file in /docker-entrypoint-init.d/* ; do
       if [[ ! -f "$init_file" ]]; then
-        echo "$0: ignoring $init_file"
+        echo "$0: ignoring $init_file" >&2
         continue
       fi
 
       case "$init_file" in
         *.sh)
           if [[ -x "$init_file" ]]; then
-            echo "$0: running $init_file"
+            echo "$0: running $init_file" >&2
             "$init_file"
           else
-            echo "$0: sourcing $init_file"
+            echo "$0: sourcing $init_file" >&2
             source "$init_file"
           fi
           ;;
 
         *)
-          echo "$0: ignoring $init_file"
+          echo "$0: ignoring $init_file" >&2
           ;;
 
       esac

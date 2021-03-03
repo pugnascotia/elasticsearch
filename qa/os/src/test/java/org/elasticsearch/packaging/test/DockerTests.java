@@ -53,6 +53,7 @@ import static org.elasticsearch.packaging.util.DockerRun.builder;
 import static org.elasticsearch.packaging.util.FileMatcher.p600;
 import static org.elasticsearch.packaging.util.FileMatcher.p644;
 import static org.elasticsearch.packaging.util.FileMatcher.p660;
+import static org.elasticsearch.packaging.util.FileMatcher.p755;
 import static org.elasticsearch.packaging.util.FileMatcher.p775;
 import static org.elasticsearch.packaging.util.FileUtils.append;
 import static org.elasticsearch.packaging.util.FileUtils.rm;
@@ -774,6 +775,83 @@ public class DockerTests extends PackagingTestCase {
 
         // This is roughly 0.4 * 942
         assertThat(xArgs, hasItems("-Xms376m", "-Xmx376m"));
+    }
+
+    /**
+     * Check that when an init script is provided, then the docker entrypoint script executes that script.
+     */
+    public void test160RunInitScripts() throws IOException {
+        final Path initScript = tempDir.resolve("update-keystore.sh");
+
+        final String scriptContent = "#!/bin/bash\n"
+            + "bin/elasticsearch-keystore create\n"
+            + "echo nonsense | bin/elasticsearch-keystore add test.key.store.value\n";
+
+        Files.writeString(initScript, scriptContent);
+        Files.setPosixFilePermissions(initScript, p755);
+
+        final Installation installation = runContainer(
+            distribution(),
+            builder().volumes(Map.of(tempDir, Path.of("/docker-entrypoint-init.d")))
+        );
+
+        final Result containerLogs = getContainerLogs();
+        assertThat(containerLogs.stderr, containsString("running /docker-entrypoint-init.d/update-keystore.sh"));
+
+        final List<String> keystoreKeys = installation.executables().keystoreTool.run("list").stdout.lines().collect(Collectors.toList());
+        assertThat(keystoreKeys, hasItems("test.key.store.value"));
+    }
+
+    /**
+     * Check that when an init script is provided but it isn't executable, then the docker entrypoint script sources that script.
+     */
+    public void test161SourceInitScripts() throws IOException {
+        assumeTrue("Requires proper permissions handling on bind-mounted volumes, which Docker for Mac doesn't provide", Platforms.LINUX);
+
+        final Path initScript = tempDir.resolve("update-keystore.sh");
+
+        final String scriptContent = "#!/bin/bash\n"
+            + "bin/elasticsearch-keystore create\n"
+            + "echo nonsense | bin/elasticsearch-keystore add test.key.store.value\n";
+
+        Files.writeString(initScript, scriptContent);
+        Files.setPosixFilePermissions(initScript, p644);
+
+        final Installation installation = runContainer(
+            distribution(),
+            builder().volumes(Map.of(tempDir, Path.of("/docker-entrypoint-init.d")))
+        );
+
+        final Result containerLogs = getContainerLogs();
+        assertThat(containerLogs.stderr, containsString("sourcing /docker-entrypoint-init.d/update-keystore.sh"));
+
+        final List<String> keystoreKeys = installation.executables().keystoreTool.run("list").stdout.lines().collect(Collectors.toList());
+        assertThat(keystoreKeys, hasItems("test.key.store.value"));
+    }
+
+    /**
+     * Check that when a files are found in the init directory but they are not scripts, then they are ignored.
+     */
+    public void test162InitFilesThatAreNotScriptsAreIgnored() throws IOException {
+        final Path initScript = tempDir.resolve("update-keystore.cmd");
+
+        final String scriptContent = "#!/bin/bash\n"
+            + "bin/elasticsearch-keystore create\n"
+            + "echo nonsense | bin/elasticsearch-keystore add test.key.store.value\n";
+
+        Files.writeString(initScript, scriptContent);
+        Files.setPosixFilePermissions(initScript, p755);
+
+        final Installation installation = runContainer(
+            distribution(),
+            builder().volumes(Map.of(tempDir, Path.of("/docker-entrypoint-init.d")))
+        );
+
+        final Result containerLogs = getContainerLogs();
+        assertThat(containerLogs.stderr, containsString("ignoring /docker-entrypoint-init.d/update-keystore.cmd"));
+
+        final List<String> keystoreKeys = installation.executables().keystoreTool.run("list").stdout.lines().collect(Collectors.toList());
+        assertThat(keystoreKeys, not(hasItems("test.key.store.value")));
     }
 
     /**
