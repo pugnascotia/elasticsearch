@@ -2,6 +2,7 @@ prNumber: 7
 summary: Update CONTRIBUTING.md
 area: TeamAmerica
 type: enhancement
-issues: []
+issues:
+ - 1
 versions:
  - v7.8.0
