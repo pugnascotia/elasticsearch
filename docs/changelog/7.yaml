@@ -1,8 +1,15 @@
 prNumber: 7
 summary: Update CONTRIBUTING.md
 area: TeamAmerica
-type: enhancement
+type: breaking
 issues:
  - 1
 versions:
  - v7.8.0
+breaking:
+  title: Update CONTRIBUTING.md
+  area: TeamAmerica
+  anchor: update-contributing-md
+  details: "Add some newlines. Relates to #1."
+  impact: Please describe the impact of this change to users
+  notable: false
