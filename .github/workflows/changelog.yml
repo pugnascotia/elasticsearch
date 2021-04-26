@@ -1,0 +1,42 @@
+# This workflow will build a Java project with Gradle
+# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-gradle
+
+name: Generate changelog entry
+
+on:
+  pull_request:
+    types: 
+      - labeled
+      - opened
+      - ready_for_review
+      - reopened
+      - synchronize
+      - unlabeled
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up JDK 15
+      uses: actions/setup-java@v2
+      with:
+        java-version: '15'
+        distribution: 'adopt'
+        
+    - name: Ensure execute permission for gradlew
+      run: chmod +x gradlew
+      
+    - name: Generate changelog entry
+      run: ./gradlew generateChangelogEntry --event-payload ${{ env.GITHUB_EVENT_PATH }}
+      
+    - name: Add & commit
+      uses: EndBug/add-and-commit@v7.2.0
+      with:
+        add: docs/changelog
+        default_author: github_actions
+        message: 'Update changelog entry'
+        pull_strategy: NO-PULL
+        push: true
+
