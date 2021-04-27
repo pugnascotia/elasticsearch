@@ -5,6 +5,13 @@ name: Generate changelog entry
 
 on:
   pull_request:
+    branches:
+      - 'master'
+      - '7.x'
+      - '7.16'
+      - '7.15'
+      - '7.14'
+      - '6.8'
     types:
       - labeled
       - opened

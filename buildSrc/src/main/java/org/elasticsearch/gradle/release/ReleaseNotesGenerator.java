@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -113,7 +114,7 @@ public class ReleaseNotesGenerator implements Closeable {
                     final StringBuilder sb = new StringBuilder(
                         "* " + log.getSummary() + " {es-pull}" + log.getPr() + "[#" + log.getPr() + "]"
                     );
-                    final List<Integer> issues = log.getIssues();
+                    final Set<Integer> issues = log.getIssues();
                     if (issues != null && issues.isEmpty() == false) {
                         sb.append(issues.size() == 1 ? " (issue: " : " (issues: ");
                         sb.append(issues.stream().map(i -> "{es-issue}" + i + "[#" + i + "]").collect(Collectors.joining(", ")));

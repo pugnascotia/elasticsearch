@@ -8,8 +8,12 @@
 
 package org.elasticsearch.gradle.release;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import com.fasterxml.jackson.dataformat.yaml.YAMLGenerator;
 
 import java.io.File;
 import java.io.IOException;
@@ -18,6 +22,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -30,16 +35,31 @@ import java.util.stream.Collectors;
  */
 public class ChangelogEntry {
     private int pr;
-    private List<Integer> issues;
+    private Set<Integer> issues;
     private String area;
     private String type;
     private String summary;
     private Highlight highlight;
     private Breaking breaking;
     private Deprecation deprecation;
-    private List<String> versions;
+    private Set<String> versions;
 
-    private static final ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
+    private static final ObjectMapper yamlMapper;
+    static {
+        YAMLFactory yamlFactory = new YAMLFactory();
+        yamlFactory.enable(YAMLGenerator.Feature.MINIMIZE_QUOTES)   // Removes quotes from strings
+            .disable(YAMLGenerator.Feature.WRITE_DOC_START_MARKER)  // Gets rid of -- at the start of the file.
+            .enable(YAMLGenerator.Feature.INDENT_ARRAYS);           // Enables indentation of arrays
+
+        yamlMapper = new ObjectMapper(yamlFactory);
+
+        // Keys in the YAML output will appear in the order that the fields are defined in the class.
+        yamlMapper.configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true);
+        // Indent the output
+        yamlMapper.configure(SerializationFeature.INDENT_OUTPUT, true);
+        // Omit keys for null values
+        yamlMapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+    }
 
     public static ChangelogEntry parse(File file) {
         try {
@@ -47,6 +67,10 @@ public class ChangelogEntry {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    public String toYaml() throws JsonProcessingException {
+        return yamlMapper.writeValueAsString(this);
     }
 
     public int getPr() {
@@ -57,11 +81,11 @@ public class ChangelogEntry {
         this.pr = pr;
     }
 
-    public List<Integer> getIssues() {
+    public Set<Integer> getIssues() {
         return issues;
     }
 
-    public void setIssues(List<Integer> issues) {
+    public void setIssues(Set<Integer> issues) {
         this.issues = issues;
     }
 
@@ -113,11 +137,11 @@ public class ChangelogEntry {
         this.deprecation = deprecation;
     }
 
-    public List<String> getVersions() {
+    public Set<String> getVersions() {
         return versions;
     }
 
-    public void setVersions(List<String> versions) {
+    public void setVersions(Set<String> versions) {
         this.versions = versions;
     }
 
