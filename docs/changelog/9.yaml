@@ -1,7 +1,7 @@
 pr: 9
 summary: Update README.asciidoc
 area: Packaging
-type: enhancement
+type: "enhancement, breaking"
 issues: []
 versions:
  - v7.8.0
